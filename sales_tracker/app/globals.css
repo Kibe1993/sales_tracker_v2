@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+* {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: linear-gradient(135deg, rgb(248, 243, 243), rgb(227, 233, 235));
+}
