@@ -41,6 +41,12 @@ func main() {
 	router.SetTrustedProxies(nil)
 
 	router.POST("/products", handlers.CreateProductHandler(pool))
+	router.GET("/products", handlers.GetAllProductsHandler(pool))
+	router.GET("/products/:id", handlers.GetProductByIdHandler(pool))
+
+	router.POST("/sales/draft", handlers.CreateDraftSaleHandler(pool))
+	router.POST("/sales/:sale_id/items", handlers.AddItemToDraftSaleHandler(pool))
+	router.GET("/sales/draft/:user_id", handlers.GetDraftSaleHandler(pool))
 
 	// Start server
 	if err := router.Run(":" + cfg.Port); err != nil {

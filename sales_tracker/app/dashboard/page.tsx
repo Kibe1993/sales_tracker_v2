@@ -6,12 +6,20 @@ import StatCard from "@/components/dashboard/statcard";
 import LowStock from "@/components/dashboard/lowstock";
 import QuickStats from "@/components/dashboard/quickstats";
 import Link from "next/link";
+import CartIcon from "@/components/dashboard/cartIcon";
+import { useCartStore } from "../inventory";
+import CartInitializer from "@/components/dashboard/cartInitializer";
 
 export default function DashboardPage() {
+  const cartCount = useCartStore((state) => state.getCount());
+  const userId = "28c9e3db-42ee-427d-81d5-9e9404bee2e2"; // replace with actual logged-in user ID
+
   return (
     <div className={styles.layout}>
-      <Sidebar />
+      {/* Initialize cart on load */}
+      <CartInitializer userId={userId} />
 
+      <Sidebar />
       <div className={styles.main}>
         <section className={styles.header}>
           <div className={styles.welcome}>
@@ -19,9 +27,13 @@ export default function DashboardPage() {
             <p>Overview of your inventory and sales performance</p>
           </div>
 
-          <div className={styles.ctaButtons}>
-            <Link href={"/dashboard/product"}>Add Product +</Link>
-            <Link href={"/dashboard/sale"}>Sell Product</Link>
+          <div className={styles.headerRight}>
+            <div className={styles.ctaButtons}>
+              <Link href={"/dashboard/product"}>Add Product +</Link>
+              <Link href={"/dashboard/sale"}>Sell Product</Link>
+            </div>
+
+            <CartIcon count={cartCount} />
           </div>
         </section>
 

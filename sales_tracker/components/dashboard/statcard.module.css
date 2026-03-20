@@ -1,7 +1,7 @@
 .card {
   border-radius: 12px;
   padding: 8px 12px;
-  color: white;
+  color: rgb(19, 21, 37);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -18,5 +18,5 @@
 }
 
 .color {
-  background: #697391;
+  background: #eff0f3;
 }

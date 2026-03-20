@@ -16,6 +16,7 @@ export default function ProductPage() {
     product_cost: "",
     product_price: "",
     quantity: "",
+    category: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,9 @@ export default function ProductPage() {
   };
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >,
   ) => {
     const { name, value } = e.target;
     setProduct((prev) => ({ ...prev, [name]: value }));
@@ -73,6 +76,7 @@ export default function ProductPage() {
       const payload = {
         product_name: product.product_name,
         description: product.description,
+        category: product.category,
         product_cost: Number(product.product_cost),
         product_price: Number(product.product_price),
         quantity: Number(product.quantity),
@@ -89,6 +93,7 @@ export default function ProductPage() {
         product_cost: "",
         product_price: "",
         quantity: "",
+        category: "",
       });
       setAttachments([]);
       router.push("/dashboard/inventory");
@@ -131,6 +136,19 @@ export default function ProductPage() {
             onChange={handleChange}
             value={product.description}
           />
+        </div>
+        <div className={styles.field}>
+          <label>Category</label>
+          <select
+            name="category"
+            value={product.category}
+            onChange={handleChange}
+          >
+            <option value="">Select Category</option>
+            <option value="electronics">Electronics</option>
+            <option value="cyber">Cyber</option>
+            <option value="services">Services</option>
+          </select>
         </div>
 
         <div className={styles.grid}>

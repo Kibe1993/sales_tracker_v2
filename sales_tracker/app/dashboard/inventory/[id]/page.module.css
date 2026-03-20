@@ -1,0 +1,129 @@
+.page {
+  min-height: 100vh;
+  background: rgb(133, 160, 168);
+  color: #1e293b;
+  padding: 40px 20px;
+}
+.wrapper {
+  width: 80%;
+  margin: auto;
+}
+
+/* Back Button */
+.backBtn {
+  display: inline-block;
+  margin-bottom: 30px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
+  transition: 0.2s ease;
+  padding: 10px;
+  background: rgb(150, 192, 206);
+  border-radius: 10px;
+}
+
+.backBtn:hover {
+  color: #0ea5e9;
+  transform: translateX(-4px);
+}
+
+/* Main Container */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 50px;
+  align-items: center;
+}
+
+/* Image Section */
+.imageSection {
+  background: rgb(160, 202, 216);
+  padding: 20px;
+  border-radius: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.mainImage {
+  width: 100%;
+  max-height: 450px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+/* Details Section */
+.detailsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.title {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.category {
+  font-size: 0.95rem;
+  color: #fff;
+  background: #899ec0;
+  padding: 6px 12px;
+  width: fit-content;
+  border-radius: 999px;
+}
+
+.description {
+  line-height: 1.6;
+  color: #e2e6ec;
+}
+
+.stock {
+  font-size: 0.9rem;
+  color: #021d0c;
+  font-weight: 500;
+}
+
+.price {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+/* Button */
+.buyBtn {
+  margin-top: 10px;
+  padding: 14px;
+  background: rgb(150, 192, 206);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: 0.3s ease;
+}
+
+.buyBtn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .container {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .title {
+    font-size: 1.8rem;
+  }
+
+  .mainImage {
+    max-height: 350px;
+  }
+}

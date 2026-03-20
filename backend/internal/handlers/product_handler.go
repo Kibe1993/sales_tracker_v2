@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"backend/internal/repository"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -14,6 +17,7 @@ import (
 type CreateProductInput struct {
 	Name        string   `json:"product_name" binding:"required"`
 	Description string   `json:"description" binding:"required"`
+	Category    string   `json:"category" binding:"required"`
 	Cost        float64  `json:"product_cost" binding:"required"`
 	Price       float64  `json:"product_price" binding:"required"`
 	Quantity    int64    `json:"quantity" binding:"required"`
@@ -47,10 +51,11 @@ func CreateProductHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		product, err := repository.CreateProduct(pool,
 			input.Name,
 			input.Description,
+			input.Category,
 			input.Cost,
 			input.Price,
 			input.Quantity,
-			input.Images, // Pass the array of image URLs
+			input.Images,
 		)
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -58,5 +63,38 @@ func CreateProductHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		ctx.JSON(http.StatusCreated, product)
+	}
+}
+
+func GetAllProductsHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		products, err := repository.GetAllProduct(pool)
+
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, products)
+	}
+}
+
+func GetProductByIdHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		id := ctx.Param("id")
+		product, err := repository.GetProductByID(pool, id)
+
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				ctx.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+				return
+			}
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		fmt.Printf("This is the product %v", product)
+		ctx.JSON(http.StatusOK, product)
+
 	}
 }
