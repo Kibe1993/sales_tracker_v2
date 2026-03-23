@@ -108,13 +108,23 @@ func GetDraftSaleHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 
 		sale, err := repository.GetDraftSale(pool, userID)
 		if err != nil {
+			fmt.Printf("Error fetching draft sale for user %s: %v\n", userID, err)
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		if sale == nil {
+			fmt.Printf("No draft sale found for user %s\n", userID)
 			ctx.JSON(http.StatusNotFound, gin.H{"message": "no draft sale found"})
 			return
+		}
+
+		// 🔹 Log the sale and its items
+		fmt.Printf("Draft sale for user %s: ID=%s, Total=%.2f, Items=%d\n",
+			userID, sale.ID, sale.TotalAmount, len(sale.Items))
+		for i, item := range sale.Items {
+			fmt.Printf("  Item %d: ID=%s, ProductID=%s, Quantity=%d, UnitPrice=%.2f, Subtotal=%.2f, ProductName=%s, ProductImage=%s\n",
+				i+1, item.ID, item.ProductID, item.Quantity, item.UnitPrice, item.Subtotal, item.ProductName, item.ProductImage)
 		}
 
 		ctx.JSON(http.StatusOK, sale)

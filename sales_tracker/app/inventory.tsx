@@ -4,28 +4,27 @@ import { create } from "zustand";
 import axios from "axios";
 
 export type CartItem = {
-  id: string; // backend sale_item id
+  id: string;
   saleId: string;
   productId: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;
   createdAt?: string;
+  product_name?: string;
+  product_image?: string;
 };
 
 type CartStore = {
   items: CartItem[];
   saleId: string | null;
 
-  // Backend operations
   initDraftSale: (userId: string) => Promise<void>;
   loadDraftSale: (userId: string) => Promise<void>;
   addToCart: (product: {
     productId: string;
     unitPrice: number;
   }) => Promise<void>;
-
-  // Helper
   getCount: () => number;
 };
 
@@ -34,36 +33,45 @@ export const useCartStore = create<CartStore>((set, get) => ({
   saleId: null,
 
   initDraftSale: async (userId) => {
+    console.log("[CartStore] initDraftSale called for user:", userId);
     try {
       const { data } = await axios.post("http://localhost:5000/sales/draft", {
         user_id: userId,
       });
+      console.log("[CartStore] Draft sale created:", data);
       set({ saleId: data.id, items: [] });
     } catch (err) {
-      console.error("Failed to create draft sale", err);
+      console.error("[CartStore] Failed to create draft sale:", err);
     }
   },
 
   loadDraftSale: async (userId) => {
+    console.log("[CartStore] loadDraftSale called for user:", userId);
     try {
       const { data } = await axios.get(
         `http://localhost:5000/sales/draft/${userId}`,
       );
+      console.log("[CartStore] Draft sale loaded:", data);
+
+      // Backend already returns productName and productImage
       set({ saleId: data.id, items: data.items || [] });
+      console.log("[CartStore] State updated with draft sale:", get());
     } catch (err: any) {
       if (err.response?.status === 404) {
-        // No draft sale exists yet
+        console.warn("[CartStore] No draft sale found for user:", userId);
         set({ saleId: null, items: [] });
       } else {
-        console.error("Failed to load draft sale", err);
+        console.error("[CartStore] Failed to load draft sale:", err);
       }
     }
   },
 
   addToCart: async (product) => {
     const { items, saleId } = get();
+    console.log("[CartStore] addToCart called:", { saleId, product });
+
     if (!saleId) {
-      console.warn("No saleId set. Initialize draft sale first.");
+      console.warn("[CartStore] No saleId set. Initialize draft sale first.");
       return;
     }
 
@@ -76,6 +84,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
           unit_price: product.unitPrice,
         },
       );
+      console.log("[CartStore] Item added to draft sale:", data);
 
       const existing = items.find((i) => i.productId === product.productId);
       if (existing) {
@@ -87,10 +96,16 @@ export const useCartStore = create<CartStore>((set, get) => ({
       } else {
         set({ items: [...items, data] });
       }
+
+      console.log("[CartStore] Updated state after addToCart:", get());
     } catch (err) {
-      console.error("Failed to add item to draft sale", err);
+      console.error("[CartStore] Failed to add item to draft sale:", err);
     }
   },
 
-  getCount: () => get().items.reduce((total, item) => total + item.quantity, 0),
+  getCount: () => {
+    const count = get().items.reduce((total, item) => total + item.quantity, 0);
+    console.log("[CartStore] getCount called. Total items:", count);
+    return count;
+  },
 }));

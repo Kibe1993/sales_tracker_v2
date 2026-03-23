@@ -131,13 +131,13 @@ func AddItemToDraftSale(pool *pgxpool.Pool, saleID string, productID string, qua
 
 	return &item, nil
 }
-
 func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var sale models.Sale
 
+	// 1️⃣ Get the latest draft sale for the user
 	err := pool.QueryRow(ctx, `
 		SELECT id, user_id, total_amount, created_at
 		FROM sales
@@ -150,7 +150,6 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 		&sale.TotalAmount,
 		&sale.CreatedAt,
 	)
-
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -158,10 +157,14 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 		return nil, err
 	}
 
+	// 2️⃣ Get sale items with product details
 	rows, err := pool.Query(ctx, `
-		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, created_at
-		FROM sales_items
-		WHERE sale_id=$1
+		SELECT 
+			si.id, si.sale_id, si.product_id, si.quantity, si.unit_price, si.subtotal, si.created_at,
+			p.product_name, p.main_image
+		FROM sales_items si
+		LEFT JOIN products p ON si.product_id = p.id
+		WHERE si.sale_id = $1
 	`, sale.ID)
 	if err != nil {
 		return nil, err
@@ -180,6 +183,8 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 			&si.UnitPrice,
 			&si.Subtotal,
 			&si.CreatedAt,
+			&si.ProductName,
+			&si.ProductImage,
 		)
 		if err != nil {
 			return nil, err

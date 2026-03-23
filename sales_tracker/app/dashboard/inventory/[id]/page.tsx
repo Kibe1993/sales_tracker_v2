@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import axios from "axios";
 import styles from "./page.module.css";
 import { useCartStore } from "@/app/inventory";
+import { toast } from "react-toastify";
 
 type Product = {
   id: string;
@@ -19,8 +20,11 @@ type Product = {
 
 export default function ProductDetailsPage() {
   const { id } = useParams();
+  const router = useRouter();
+
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
 
   const addToCart = useCartStore((state) => state.addToCart);
   const saleId = useCartStore((state) => state.saleId);
@@ -29,14 +33,21 @@ export default function ProductDetailsPage() {
 
   const userId = "28c9e3db-42ee-427d-81d5-9e9404bee2e2";
 
-  // Load existing draft sale or create a new one
+  // Ensure draft sale exists
   useEffect(() => {
     const ensureDraftSale = async () => {
-      await loadDraftSale(userId);
-      if (!useCartStore.getState().saleId) {
-        await initDraftSale(userId);
+      try {
+        await loadDraftSale(userId);
+
+        // IMPORTANT: re-check from store directly (fresh state)
+        if (!useCartStore.getState().saleId) {
+          await initDraftSale(userId);
+        }
+      } catch (err) {
+        toast.error("Failed to initialize cart");
       }
     };
+
     ensureDraftSale();
   }, [userId, loadDraftSale, initDraftSale]);
 
@@ -50,12 +61,45 @@ export default function ProductDetailsPage() {
         setProduct(data);
       } catch {
         setProduct(null);
+        toast.error("Failed to load product");
       } finally {
         setLoading(false);
       }
     };
+
     if (id) fetchProduct();
   }, [id]);
+
+  // ✅ Clean add-to-cart flow
+  const handleAddToCart = async () => {
+    if (!product) return;
+
+    const currentSaleId = useCartStore.getState().saleId;
+    if (!currentSaleId) {
+      toast.error("Cart not ready yet");
+      return;
+    }
+
+    try {
+      setAdding(true);
+
+      await addToCart({
+        productId: product.id,
+        unitPrice: product.product_price,
+      });
+
+      toast.success("Item added to cart");
+
+      // slight delay for UX
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 800);
+    } catch (error) {
+      toast.error("Failed to add item to cart");
+    } finally {
+      setAdding(false);
+    }
+  };
 
   if (loading) return <p>Loading product...</p>;
   if (!product) return <p>Product not found</p>;
@@ -81,26 +125,23 @@ export default function ProductDetailsPage() {
             <p className={styles.category}>Category: {product.category}</p>
             <p className={styles.description}>{product.description}</p>
             <p className={styles.stock}>{product.quantity} items in stock</p>
+
             <h2 className={styles.price}>
               KES {product.product_price.toLocaleString()}
             </h2>
 
             <button
               className={styles.buyBtn}
-              disabled={product.quantity === 0 || !saleId}
-              onClick={() =>
-                saleId &&
-                addToCart({
-                  productId: product.id,
-                  unitPrice: product.product_price,
-                })
-              }
+              disabled={product.quantity === 0 || !saleId || adding}
+              onClick={handleAddToCart}
             >
               {!saleId
                 ? "Initializing Cart..."
                 : product.quantity === 0
                   ? "Out of Stock"
-                  : "Add to Cart"}
+                  : adding
+                    ? "Adding..."
+                    : "Add to Cart"}
             </button>
           </div>
         </div>

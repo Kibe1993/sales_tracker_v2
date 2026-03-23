@@ -1,0 +1,120 @@
+/* page.module.css */
+.page {
+  padding: 2.5rem;
+  background: #f5f6fa;
+  min-height: 100vh;
+  font-family: "Inter", sans-serif;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 2rem;
+  color: #1f1f1f;
+}
+
+.container {
+  display: grid;
+  grid-template-columns: 2.5fr 1fr;
+  gap: 2rem;
+}
+
+/* Items Section */
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.08);
+}
+
+.imageSection {
+  flex-shrink: 0;
+}
+
+.image {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.itemInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-left: 1rem;
+}
+
+.product {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #222;
+}
+
+.quantity,
+.unitPrice {
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.pricing {
+  text-align: right;
+}
+
+.subtotal {
+  font-weight: 700;
+  font-size: 1rem;
+  color: #111;
+}
+
+/* Summary Section */
+.summary {
+  padding: 2rem;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.total {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.checkoutBtn {
+  padding: 1rem;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #000, #222);
+  color: white;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.checkoutBtn:hover {
+  background: linear-gradient(90deg, #111, #333);
+  transform: translateY(-1px);
+}
