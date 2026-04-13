@@ -118,3 +118,77 @@
   background: linear-gradient(90deg, #111, #333);
   transform: translateY(-1px);
 }
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1.5rem;
+
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #333;
+
+  transition: all 0.2s ease;
+}
+
+.backLink:hover {
+  color: #000;
+  transform: translateX(-2px);
+}
+
+.backLink svg {
+  transition: transform 0.2s ease;
+}
+
+.backLink:hover svg {
+  transform: translateX(-3px);
+}
+
+.quantityControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.quantityControls button {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f5f5f5;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quantityControls button:hover {
+  background: #e0e0e0;
+}
+
+.quantityControls span {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Remove Button */
+.removeBtn {
+  margin-top: 0.5rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #ff4d4f;
+  transition:
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.removeBtn:hover {
+  color: #d9363e;
+  transform: scale(1.1);
+}

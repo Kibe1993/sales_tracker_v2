@@ -5,8 +5,7 @@ import axios from "axios";
 
 export type CartItem = {
   id: string;
-  saleId: string;
-  productId: string;
+  productId: string; // keep camelCase for logic
   quantity: number;
   unitPrice: number;
   subtotal: number;
@@ -17,95 +16,120 @@ export type CartItem = {
 
 type CartStore = {
   items: CartItem[];
-  saleId: string | null;
 
-  initDraftSale: (userId: string) => Promise<void>;
   loadDraftSale: (userId: string) => Promise<void>;
-  addToCart: (product: {
+  addToCart: (args: {
+    userId: string;
     productId: string;
     unitPrice: number;
   }) => Promise<void>;
+  updateQuantity: (itemId: string, quantity: number) => Promise<void>;
+  removeItem: (itemId: string) => Promise<void>;
+
   getCount: () => number;
 };
 
+// normalize backend → frontend
+const formatItem = (item: any): CartItem => ({
+  id: item.id,
+  productId: item.product_id,
+  quantity: item.quantity,
+  unitPrice: item.unit_price,
+  subtotal: item.subtotal,
+  createdAt: item.created_at,
+  product_name: item.product_name,
+  product_image: item.product_image,
+});
+
 export const useCartStore = create<CartStore>((set, get) => ({
   items: [],
-  saleId: null,
 
-  initDraftSale: async (userId) => {
-    console.log("[CartStore] initDraftSale called for user:", userId);
-    try {
-      const { data } = await axios.post("http://localhost:5000/sales/draft", {
-        user_id: userId,
-      });
-      console.log("[CartStore] Draft sale created:", data);
-      set({ saleId: data.id, items: [] });
-    } catch (err) {
-      console.error("[CartStore] Failed to create draft sale:", err);
-    }
-  },
-
+  // ✅ LOAD CART
   loadDraftSale: async (userId) => {
-    console.log("[CartStore] loadDraftSale called for user:", userId);
     try {
-      const { data } = await axios.get(
-        `http://localhost:5000/sales/draft/${userId}`,
-      );
-      console.log("[CartStore] Draft sale loaded:", data);
+      const { data } = await axios.get(`http://localhost:5000/cart/${userId}`);
+      const formattedItems = (data.items || []).map(formatItem);
 
-      // Backend already returns productName and productImage
-      set({ saleId: data.id, items: data.items || [] });
-      console.log("[CartStore] State updated with draft sale:", get());
+      set({ items: formattedItems });
+      console.log("[Cart] loaded:", formattedItems.length);
     } catch (err: any) {
       if (err.response?.status === 404) {
-        console.warn("[CartStore] No draft sale found for user:", userId);
-        set({ saleId: null, items: [] });
+        set({ items: [] });
       } else {
-        console.error("[CartStore] Failed to load draft sale:", err);
+        console.error("[Cart] loadDraftSale failed:", err);
       }
     }
   },
 
-  addToCart: async (product) => {
-    const { items, saleId } = get();
-    console.log("[CartStore] addToCart called:", { saleId, product });
-
-    if (!saleId) {
-      console.warn("[CartStore] No saleId set. Initialize draft sale first.");
-      return;
-    }
+  // ✅ ADD ITEM
+  addToCart: async ({ userId, productId, unitPrice }) => {
+    const { items } = get();
 
     try {
-      const { data } = await axios.post(
-        `http://localhost:5000/sales/${saleId}/items`,
-        {
-          product_id: product.productId,
-          quantity: 1,
-          unit_price: product.unitPrice,
-        },
-      );
-      console.log("[CartStore] Item added to draft sale:", data);
+      const { data } = await axios.post("http://localhost:5000/cart/items", {
+        clerkUserId: userId,
+        productId,
+        quantity: 1,
+        unitPrice,
+      });
 
-      const existing = items.find((i) => i.productId === product.productId);
-      if (existing) {
+      const formatted = formatItem(data);
+      const exists = items.find((i) => i.productId === productId);
+
+      if (exists) {
         set({
           items: items.map((i) =>
-            i.productId === product.productId ? data : i,
+            i.productId === productId
+              ? {
+                  ...formatted,
+                  product_name: i.product_name,
+                  product_image: i.product_image,
+                }
+              : i,
           ),
         });
       } else {
-        set({ items: [...items, data] });
+        set({ items: [...items, formatted] });
       }
-
-      console.log("[CartStore] Updated state after addToCart:", get());
     } catch (err) {
-      console.error("[CartStore] Failed to add item to draft sale:", err);
+      console.error("[Cart] addToCart failed:", err);
     }
   },
 
-  getCount: () => {
-    const count = get().items.reduce((total, item) => total + item.quantity, 0);
-    console.log("[CartStore] getCount called. Total items:", count);
-    return count;
+  // ✅ UPDATE QUANTITY
+  updateQuantity: async (itemId, quantity) => {
+    if (quantity < 0) return;
+
+    try {
+      const { data } = await axios.patch(
+        `http://localhost:5000/cart/items/${itemId}`,
+        { quantity },
+      );
+
+      set((state) => ({
+        items: state.items.map((i) =>
+          i.id === itemId
+            ? { ...i, quantity: data.quantity, subtotal: data.subtotal }
+            : i,
+        ),
+      }));
+    } catch (err) {
+      console.error("[Cart] updateQuantity failed:", err);
+    }
   },
+
+  // ✅ REMOVE ITEM
+  removeItem: async (itemId) => {
+    try {
+      await axios.delete(`http://localhost:5000/cart/items/${itemId}`);
+      set((state) => ({
+        items: state.items.filter((i) => i.id !== itemId),
+      }));
+    } catch (err) {
+      console.error("[Cart] removeItem failed:", err);
+    }
+  },
+
+  // ✅ CART COUNT
+  getCount: () => get().items.reduce((sum, i) => sum + i.quantity, 0),
 }));

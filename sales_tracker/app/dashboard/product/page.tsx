@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import styles from "./page.module.css";
 import { useRouter } from "next/navigation";
@@ -61,6 +59,7 @@ export default function ProductPage() {
       `https://api.cloudinary.com/v1_1/${cloudName}/upload`,
       formData,
     );
+
     return res.data.secure_url;
   }
 

@@ -4,6 +4,7 @@ import (
 	"backend/internal/config"
 	"backend/internal/database"
 	"backend/internal/handlers"
+	"backend/internal/middleware"
 	"log"
 
 	"github.com/gin-contrib/cors"
@@ -32,7 +33,7 @@ func main() {
 	// CORS setup
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"POST", "GET", "OPTIONS"},
+		AllowMethods:     []string{"POST", "GET", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -43,10 +44,20 @@ func main() {
 	router.POST("/products", handlers.CreateProductHandler(pool))
 	router.GET("/products", handlers.GetAllProductsHandler(pool))
 	router.GET("/products/:id", handlers.GetProductByIdHandler(pool))
+	router.GET("/stats", handlers.GetProductStatsHandler(pool))
 
-	router.POST("/sales/draft", handlers.CreateDraftSaleHandler(pool))
-	router.POST("/sales/:sale_id/items", handlers.AddItemToDraftSaleHandler(pool))
-	router.GET("/sales/draft/:user_id", handlers.GetDraftSaleHandler(pool))
+	admin := router.Group("/admin")
+	admin.Use(middleware.AuthMiddleware())
+	admin.Use(middleware.RequireAdmin())
+
+	router.PATCH("/products/:id", handlers.UpdateProductHandler(pool))
+	router.DELETE("/products/:id", handlers.DeleteProductHandler(pool))
+
+	// router.POST("/sales/draft", handlers.CreateDraftSaleHandler(pool))
+	router.POST("/cart/items", handlers.AddItemToCartHandler(pool))
+	router.GET("/cart/:userId", handlers.GetDraftSaleHandler(pool))
+	router.PATCH("/cart/items/:id", handlers.UpdateCartItemHandler(pool))
+	router.DELETE("/cart/items/:id", handlers.DeleteCartItemHandler(pool))
 
 	// Start server
 	if err := router.Run(":" + cfg.Port); err != nil {

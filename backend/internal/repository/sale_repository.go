@@ -10,35 +10,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func CreateDraftSale(pool *pgxpool.Pool, userId string) (*models.Sale, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func AddItemToDraftSale(
+	pool *pgxpool.Pool,
+	clerkUserId string,
+	productID string,
+	quantity int,
+	unitPrice float64,
+) (*models.SaleItem, error) {
 
-	saleID := uuid.New().String()
-
-	query := `
-	INSERT INTO sales (id, user_id, total_amount)
-	VALUES ($1, $2, $3)
-	RETURNING id, user_id, total_amount, created_at
-	`
-
-	var sale models.Sale
-
-	err := pool.QueryRow(ctx, query, saleID, userId, 0).Scan(
-		&sale.ID,
-		&sale.UserID,
-		&sale.TotalAmount,
-		&sale.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	sale.Items = []models.SaleItem{}
-	return &sale, nil
-}
-
-func AddItemToDraftSale(pool *pgxpool.Pool, saleID string, productID string, quantity int, unitPrice float64) (*models.SaleItem, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -48,27 +27,84 @@ func AddItemToDraftSale(pool *pgxpool.Pool, saleID string, productID string, qua
 	}
 	defer tx.Rollback(ctx)
 
+	// 1. GET OR CREATE USER (FIXED)
+
+	var userID string
+
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE clerk_user_id = $1
+	`, clerkUserId).Scan(&userID)
+
+	if err == pgx.ErrNoRows {
+		userID = uuid.New().String()
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO users (id, clerk_user_id)
+			VALUES ($1, $2)
+		`, userID, clerkUserId)
+
+		if err != nil {
+			return nil, err
+		}
+
+	} else if err != nil {
+		return nil, err
+	}
+
+	// 2. GET OR CREATE DRAFT SALE
+
+	var saleID string
+
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM sales
+		WHERE user_id = $1 AND status = 'draft'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, userID).Scan(&saleID)
+
+	if err == pgx.ErrNoRows {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO sales (user_id, total_amount, status)
+			VALUES ($1, 0, 'draft')
+			RETURNING id
+		`, userID).Scan(&saleID)
+
+		if err != nil {
+			return nil, err
+		}
+
+	} else if err != nil {
+		return nil, err
+	}
+
+	// 3. CHECK IF ITEM EXISTS
+
 	var existingID string
 	var existingQty int
 
 	err = tx.QueryRow(ctx, `
 		SELECT id, quantity
 		FROM sales_items
-		WHERE sale_id=$1 AND product_id=$2
+		WHERE sale_id = $1 AND product_id = $2
 	`, saleID, productID).Scan(&existingID, &existingQty)
 
 	var item models.SaleItem
 
 	if err == nil {
-		// EXISTS → update
+
+		// UPDATE
 		newQty := existingQty + quantity
 		subtotal := float64(newQty) * unitPrice
 
 		_, err = tx.Exec(ctx, `
 			UPDATE sales_items
-			SET quantity=$1, subtotal=$2
-			WHERE id=$3
+			SET quantity = $1, subtotal = $2
+			WHERE id = $3
 		`, newQty, subtotal, existingID)
+
 		if err != nil {
 			return nil, err
 		}
@@ -84,14 +120,18 @@ func AddItemToDraftSale(pool *pgxpool.Pool, saleID string, productID string, qua
 		}
 
 	} else if err == pgx.ErrNoRows {
-		// NOT EXISTS → insert
+
+		// INSERT
 		itemID := uuid.New().String()
 		subtotal := float64(quantity) * unitPrice
 
 		_, err = tx.Exec(ctx, `
-			INSERT INTO sales_items (id, sale_id, product_id, quantity, unit_price, subtotal)
+			INSERT INTO sales_items (
+				id, sale_id, product_id, quantity, unit_price, subtotal
+			)
 			VALUES ($1, $2, $3, $4, $5, $6)
 		`, itemID, saleID, productID, quantity, unitPrice, subtotal)
+
 		if err != nil {
 			return nil, err
 		}
@@ -110,46 +150,68 @@ func AddItemToDraftSale(pool *pgxpool.Pool, saleID string, productID string, qua
 		return nil, err
 	}
 
-	// Update total_amount safely
+	// 4. UPDATE TOTAL
+
 	_, err = tx.Exec(ctx, `
 		UPDATE sales
 		SET total_amount = (
 			SELECT COALESCE(SUM(subtotal), 0)
 			FROM sales_items
-			WHERE sale_id=$1
+			WHERE sale_id = $1
 		)
-		WHERE id=$1
+		WHERE id = $1
 	`, saleID)
+
 	if err != nil {
 		return nil, err
 	}
 
-	// Commit transaction
+	// 5. COMMIT
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
 	return &item, nil
 }
-func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
+func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) {
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var sale models.Sale
+	var internalUserID string
 
-	// 1️⃣ Get the latest draft sale for the user
+	// 1. GET USER (SAFE)
+
 	err := pool.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE clerk_user_id = $1
+	`, clerkUserID).Scan(&internalUserID)
+
+	if err == pgx.ErrNoRows {
+		// user exists in Clerk but not in DB yet → treat as empty cart
+		return &models.Sale{
+			Items: []models.SaleItem{},
+		}, nil
+	}
+
+	// 2. GET DRAFT SALE
+
+	err = pool.QueryRow(ctx, `
 		SELECT id, user_id, total_amount, created_at
 		FROM sales
-		WHERE user_id=$1
+		WHERE user_id = $1 AND status = 'draft'
 		ORDER BY created_at DESC
 		LIMIT 1
-	`, userID).Scan(
+	`, internalUserID).Scan(
 		&sale.ID,
 		&sale.UserID,
 		&sale.TotalAmount,
 		&sale.CreatedAt,
 	)
+
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -157,15 +219,24 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 		return nil, err
 	}
 
-	// 2️⃣ Get sale items with product details
+	// 3. LOAD ITEMS
+
 	rows, err := pool.Query(ctx, `
 		SELECT 
-			si.id, si.sale_id, si.product_id, si.quantity, si.unit_price, si.subtotal, si.created_at,
-			p.product_name, p.main_image
+			si.id,
+			si.sale_id,
+			si.product_id,
+			si.quantity,
+			si.unit_price,
+			si.subtotal,
+			si.created_at,
+			COALESCE(p.product_name, ''),
+			COALESCE(p.main_image, '')
 		FROM sales_items si
-		LEFT JOIN products p ON si.product_id = p.id
+		LEFT JOIN products p ON p.id = si.product_id
 		WHERE si.sale_id = $1
 	`, sale.ID)
+
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +246,8 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 
 	for rows.Next() {
 		var si models.SaleItem
-		err := rows.Scan(
+
+		if err := rows.Scan(
 			&si.ID,
 			&si.SaleID,
 			&si.ProductID,
@@ -185,13 +257,173 @@ func GetDraftSale(pool *pgxpool.Pool, userID string) (*models.Sale, error) {
 			&si.CreatedAt,
 			&si.ProductName,
 			&si.ProductImage,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
+
 		items = append(items, si)
 	}
 
 	sale.Items = items
 	return &sale, nil
+}
+
+func UpdateCartItemQuantity(
+	pool *pgxpool.Pool,
+	itemID string,
+	quantity int,
+) (*models.SaleItem, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	var unitPrice float64
+	var saleID string
+
+	// 1. GET CURRENT ITEM
+	err = tx.QueryRow(ctx, `
+		SELECT unit_price, sale_id
+		FROM sales_items
+		WHERE id = $1
+	`, itemID).Scan(&unitPrice, &saleID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// ❗ If quantity becomes 0 → delete instead
+	if quantity <= 0 {
+		_, err = tx.Exec(ctx, `
+			DELETE FROM sales_items
+			WHERE id = $1
+		`, itemID)
+
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		subtotal := float64(quantity) * unitPrice
+
+		_, err = tx.Exec(ctx, `
+			UPDATE sales_items
+			SET quantity = $1, subtotal = $2
+			WHERE id = $3
+		`, quantity, subtotal, itemID)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 2. UPDATE TOTAL
+	_, err = tx.Exec(ctx, `
+		UPDATE sales
+		SET total_amount = (
+			SELECT COALESCE(SUM(subtotal), 0)
+			FROM sales_items
+			WHERE sale_id = $1
+		)
+		WHERE id = $1
+	`, saleID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. RETURN UPDATED ITEM (if still exists)
+	var item models.SaleItem
+
+	err = tx.QueryRow(ctx, `
+		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, created_at
+		FROM sales_items
+		WHERE id = $1
+	`, itemID).Scan(
+		&item.ID,
+		&item.SaleID,
+		&item.ProductID,
+		&item.Quantity,
+		&item.UnitPrice,
+		&item.Subtotal,
+		&item.CreatedAt,
+	)
+
+	// If deleted, just commit and return nil
+	if err == pgx.ErrNoRows {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func RemoveCartItem(
+	pool *pgxpool.Pool,
+	itemID string,
+) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var saleID string
+
+	// 1. GET SALE ID
+	err = tx.QueryRow(ctx, `
+		SELECT sale_id
+		FROM sales_items
+		WHERE id = $1
+	`, itemID).Scan(&saleID)
+
+	if err != nil {
+		return err
+	}
+
+	// 2. DELETE ITEM
+	_, err = tx.Exec(ctx, `
+		DELETE FROM sales_items
+		WHERE id = $1
+	`, itemID)
+
+	if err != nil {
+		return err
+	}
+
+	// 3. UPDATE TOTAL
+	_, err = tx.Exec(ctx, `
+		UPDATE sales
+		SET total_amount = (
+			SELECT COALESCE(SUM(subtotal), 0)
+			FROM sales_items
+			WHERE sale_id = $1
+		)
+		WHERE id = $1
+	`, saleID)
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

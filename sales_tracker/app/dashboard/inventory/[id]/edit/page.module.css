@@ -1,0 +1,106 @@
+.page {
+  min-height: 100vh;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #85a0a8, #c7d6db);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.wrapper {
+  width: 100%;
+  max-width: 650px;
+  background: white;
+  padding: 30px;
+  border-radius: 18px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: #0f172a;
+}
+
+/* FORM */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form input,
+.form textarea {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  outline: none;
+  font-size: 0.95rem;
+}
+
+.form textarea {
+  min-height: 100px;
+}
+
+/* BUTTONS */
+.submitBtn {
+  margin-top: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  background: #38bdf8;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancelBtn {
+  background: transparent;
+  border: none;
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+/* IMAGE UPLOAD */
+.uploadBox {
+  padding: 14px;
+  border: 2px dashed #94a3b8;
+  border-radius: 12px;
+  text-align: center;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+/* PREVIEW */
+.previewGrid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.imageBox {
+  position: relative;
+}
+
+.previewImage {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.imageBox button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: red;
+  border: none;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}

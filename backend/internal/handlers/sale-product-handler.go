@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"backend/internal/repository"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,83 +9,62 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Input struct
-type CreateDraftSaleInput struct {
-	UserID string `json:"user_id" binding:"required"`
-}
-
 type AddItemToSaleInput struct {
 	ProductID string  `json:"product_id" binding:"required"`
 	Quantity  int     `json:"quantity" binding:"required"`
 	UnitPrice float64 `json:"unit_price" binding:"required"`
 }
 
-// Handler
-func CreateDraftSaleHandler(pool *pgxpool.Pool) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-
-		var input CreateDraftSaleInput
-		fmt.Printf("CreateDraftSaleHandler called with body: %+v\n", input)
-
-		if err := ctx.ShouldBindJSON(&input); err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		if strings.TrimSpace(input.UserID) == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "user_id cannot be empty"})
-			return
-		}
-		fmt.Println("Creating draft sale for user:", input.UserID)
-		sale, err := repository.CreateDraftSale(pool, input.UserID)
-		if err != nil {
-			fmt.Printf("Error creating draft sale for user %s: %v\n", input.UserID, err)
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		fmt.Printf("Draft sale created successfully: %+v\n", sale)
-		ctx.JSON(http.StatusCreated, sale)
-	}
+type UpdateCartItemInput struct {
+	Quantity int `json:"quantity" binding:"required"`
 }
 
-func AddItemToDraftSaleHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+func AddItemToCartHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		saleID := ctx.Param("sale_id")
 
-		var input AddItemToSaleInput
+		var input struct {
+			ClerkUserID string  `json:"clerkUserId"`
+			ProductID   string  `json:"productId"`
+			Quantity    int     `json:"quantity"`
+			UnitPrice   float64 `json:"unitPrice"`
+		}
+
+		// Bind JSON
 		if err := ctx.ShouldBindJSON(&input); err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		// validations
-		if strings.TrimSpace(saleID) == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "sale_id is required"})
+		// Validation
+		if input.ClerkUserID == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "clerkUserId required"})
 			return
 		}
 
-		if strings.TrimSpace(input.ProductID) == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "product_id cannot be empty"})
+		if input.ProductID == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "productId required"})
 			return
 		}
 
 		if input.Quantity <= 0 {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "quantity must be greater than 0"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "quantity must be > 0"})
 			return
 		}
 
 		if input.UnitPrice <= 0 {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "unit_price must be greater than 0"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "unitPrice must be > 0"})
 			return
 		}
 
+		// Repository call
 		item, err := repository.AddItemToDraftSale(
 			pool,
-			saleID,
+			input.ClerkUserID,
 			input.ProductID,
 			input.Quantity,
 			input.UnitPrice,
 		)
+
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -98,35 +76,86 @@ func AddItemToDraftSaleHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 
 // Handler
 func GetDraftSaleHandler(pool *pgxpool.Pool) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		userID := ctx.Param("user_id")
+	return func(c *gin.Context) {
 
-		if strings.TrimSpace(userID) == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		clerkUserID := strings.TrimSpace(c.Param("userId"))
+
+		if clerkUserID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "user_id is required",
+			})
 			return
 		}
 
-		sale, err := repository.GetDraftSale(pool, userID)
+		sale, err := repository.GetDraftSale(pool, clerkUserID)
 		if err != nil {
-			fmt.Printf("Error fetching draft sale for user %s: %v\n", userID, err)
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to fetch draft sale",
+			})
 			return
 		}
 
 		if sale == nil {
-			fmt.Printf("No draft sale found for user %s\n", userID)
-			ctx.JSON(http.StatusNotFound, gin.H{"message": "no draft sale found"})
+			c.JSON(http.StatusOK, gin.H{
+				"message": "no draft sale found",
+			})
 			return
 		}
 
-		// 🔹 Log the sale and its items
-		fmt.Printf("Draft sale for user %s: ID=%s, Total=%.2f, Items=%d\n",
-			userID, sale.ID, sale.TotalAmount, len(sale.Items))
-		for i, item := range sale.Items {
-			fmt.Printf("  Item %d: ID=%s, ProductID=%s, Quantity=%d, UnitPrice=%.2f, Subtotal=%.2f, ProductName=%s, ProductImage=%s\n",
-				i+1, item.ID, item.ProductID, item.Quantity, item.UnitPrice, item.Subtotal, item.ProductName, item.ProductImage)
+		c.JSON(http.StatusOK, sale)
+	}
+}
+
+func UpdateCartItemHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		itemID := ctx.Param("id")
+		if itemID == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "item id is required"})
+			return
 		}
 
-		ctx.JSON(http.StatusOK, sale)
+		var input UpdateCartItemInput
+		if err := ctx.ShouldBindJSON(&input); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if input.Quantity < 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "quantity cannot be negative"})
+			return
+		}
+
+		item, err := repository.UpdateCartItemQuantity(pool, itemID, input.Quantity)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// If quantity is 0, item was removed
+		if item == nil {
+			ctx.Status(http.StatusNoContent)
+			return
+		}
+
+		ctx.JSON(http.StatusOK, item)
+	}
+}
+
+// -------------------- DELETE: Remove Item --------------------
+
+func DeleteCartItemHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		itemID := ctx.Param("id")
+		if itemID == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "item id is required"})
+			return
+		}
+
+		if err := repository.RemoveCartItem(pool, itemID); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		ctx.Status(http.StatusNoContent)
 	}
 }

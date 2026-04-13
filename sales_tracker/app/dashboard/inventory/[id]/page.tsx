@@ -7,6 +7,7 @@ import axios from "axios";
 import styles from "./page.module.css";
 import { useCartStore } from "@/app/inventory";
 import { toast } from "react-toastify";
+import { useUser, useAuth } from "@clerk/nextjs";
 
 type Product = {
   id: string;
@@ -27,29 +28,24 @@ export default function ProductDetailsPage() {
   const [adding, setAdding] = useState(false);
 
   const addToCart = useCartStore((state) => state.addToCart);
-  const saleId = useCartStore((state) => state.saleId);
-  const initDraftSale = useCartStore((state) => state.initDraftSale);
   const loadDraftSale = useCartStore((state) => state.loadDraftSale);
 
-  const userId = "28c9e3db-42ee-427d-81d5-9e9404bee2e2";
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
 
-  // Ensure draft sale exists
+  const userId = user?.id;
+
+  // role
+  const role = user?.publicMetadata?.role;
+
+  // Load cart
   useEffect(() => {
-    const ensureDraftSale = async () => {
-      try {
-        await loadDraftSale(userId);
+    if (!isLoaded || !userId) return;
 
-        // IMPORTANT: re-check from store directly (fresh state)
-        if (!useCartStore.getState().saleId) {
-          await initDraftSale(userId);
-        }
-      } catch (err) {
-        toast.error("Failed to initialize cart");
-      }
-    };
-
-    ensureDraftSale();
-  }, [userId, loadDraftSale, initDraftSale]);
+    loadDraftSale(userId).catch(() => {
+      toast.error("Failed to load cart");
+    });
+  }, [isLoaded, userId, loadDraftSale]);
 
   // Fetch product
   useEffect(() => {
@@ -59,7 +55,8 @@ export default function ProductDetailsPage() {
           `http://localhost:5000/products/${id}`,
         );
         setProduct(data);
-      } catch {
+      } catch (err) {
+        console.error("[Product] fetch failed:", err);
         setProduct(null);
         toast.error("Failed to load product");
       } finally {
@@ -70,13 +67,12 @@ export default function ProductDetailsPage() {
     if (id) fetchProduct();
   }, [id]);
 
-  // ✅ Clean add-to-cart flow
+  // Add to cart
   const handleAddToCart = async () => {
     if (!product) return;
 
-    const currentSaleId = useCartStore.getState().saleId;
-    if (!currentSaleId) {
-      toast.error("Cart not ready yet");
+    if (!userId) {
+      toast.error("You must be logged in");
       return;
     }
 
@@ -84,20 +80,47 @@ export default function ProductDetailsPage() {
       setAdding(true);
 
       await addToCart({
+        userId,
         productId: product.id,
         unitPrice: product.product_price,
       });
 
       toast.success("Item added to cart");
 
-      // slight delay for UX
       setTimeout(() => {
-        router.push("/dashboard");
-      }, 800);
-    } catch (error) {
+        router.push("/dashboard/cartpage");
+      }, 700);
+    } catch (err) {
+      console.error("[Cart] add failed:", err);
       toast.error("Failed to add item to cart");
     } finally {
       setAdding(false);
+    }
+  };
+
+  // Delete product (FIXED)
+  const handleDelete = async () => {
+    if (!product) return;
+
+    const confirmDelete = confirm(
+      "Are you sure you want to delete this product?",
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const token = await getToken();
+
+      await axios.delete(`http://localhost:5000/products/${product.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      toast.success("Product deleted");
+      router.push("/dashboard/inventory");
+    } catch (err) {
+      console.error("[Delete] failed:", err);
+      toast.error("Failed to delete product");
     }
   };
 
@@ -122,27 +145,46 @@ export default function ProductDetailsPage() {
 
           <div className={styles.detailsSection}>
             <h1 className={styles.title}>{product.product_name}</h1>
+
             <p className={styles.category}>Category: {product.category}</p>
             <p className={styles.description}>{product.description}</p>
             <p className={styles.stock}>{product.quantity} items in stock</p>
 
             <h2 className={styles.price}>
               KES {product.product_price.toLocaleString()}
+              <span className={styles.unit}> / Unit</span>
             </h2>
 
-            <button
-              className={styles.buyBtn}
-              disabled={product.quantity === 0 || !saleId || adding}
-              onClick={handleAddToCart}
-            >
-              {!saleId
-                ? "Initializing Cart..."
-                : product.quantity === 0
+            <div className={styles.actionsRow}>
+              <button
+                className={styles.buyBtn}
+                disabled={product.quantity === 0 || adding}
+                onClick={handleAddToCart}
+              >
+                {product.quantity === 0
                   ? "Out of Stock"
                   : adding
                     ? "Adding..."
                     : "Add to Cart"}
-            </button>
+              </button>
+
+              {role === "admin" && (
+                <>
+                  <button
+                    className={styles.editBtn}
+                    onClick={() =>
+                      router.push(`/dashboard/inventory/${product.id}/edit`)
+                    }
+                  >
+                    Edit
+                  </button>
+
+                  <button className={styles.deleteBtn} onClick={handleDelete}>
+                    Delete
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -50,7 +50,7 @@
 
 .ctaButtons a {
   padding: 10px 20px;
-  background: #3b82f6;
+  background: #9097a1;
   color: #ffffff;
   font-weight: 600;
   border-radius: 8px;
@@ -61,7 +61,7 @@
 }
 
 .ctaButtons a:hover {
-  background: #2563eb;
+  background: #92a2c4;
   transform: translateY(-2px);
 }
 

@@ -1,33 +1,28 @@
-// components/dashboard/CartInitializer.tsx
 "use client";
 
 import { useEffect } from "react";
 import { useCartStore } from "@/app/inventory";
 
 type CartInitializerProps = {
-  userId: string; // current logged-in user
+  userId: string;
 };
 
 export default function CartInitializer({ userId }: CartInitializerProps) {
   const loadDraftSale = useCartStore((state) => state.loadDraftSale);
-  const initDraftSale = useCartStore((state) => state.initDraftSale);
 
   useEffect(() => {
-    const initCart = async () => {
-      try {
-        await loadDraftSale(userId); // try to load existing draft sale
+    if (!userId) return;
 
-        const state = useCartStore.getState();
-        if (!state.saleId) {
-          await initDraftSale(userId); // create new draft if none exists
-        }
+    const init = async () => {
+      try {
+        await loadDraftSale(userId);
       } catch (err) {
         console.error("Cart initialization failed", err);
       }
     };
 
-    initCart();
-  }, [userId, loadDraftSale, initDraftSale]);
+    init();
+  }, [userId, loadDraftSale]);
 
-  return null; // this component doesn't render anything
+  return null;
 }

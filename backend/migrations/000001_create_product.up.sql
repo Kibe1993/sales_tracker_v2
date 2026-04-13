@@ -31,9 +31,13 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sales (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id),
-    total_amount NUMERIC NOT NULL,
+    total_amount NUMERIC NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS one_draft_per_user
+ON sales(user_id)
+WHERE status = 'draft';
 
 CREATE TABLE IF NOT EXISTS sales_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

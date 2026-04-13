@@ -6,12 +6,19 @@ import { useRouter } from "next/navigation";
 
 export default function Sidebar() {
   const { signOut } = useClerk();
+  const { user, isLoaded } = useUser();
   const router = useRouter();
 
   const handleLogout = async () => {
     await signOut();
     router.push("/");
   };
+
+  // Wait until user is loaded
+  if (!isLoaded) return null;
+
+  // Get role from Clerk metadata
+  const role = user?.publicMetadata?.role;
 
   return (
     <aside className={styles.sidebar}>
@@ -27,9 +34,13 @@ export default function Sidebar() {
         <Link href="/dashboard" className={styles.active}>
           Dashboard
         </Link>
-        <Link href="/dashboard/product">Products</Link>
+
+        {/* Only show if admin */}
+        {role === "admin" && (
+          <Link href="/dashboard/product">Add Products</Link>
+        )}
+
         <Link href="/dashboard/inventory">Inventory</Link>
-        <Link href="/dashboard/sale">Sales</Link>
       </nav>
 
       <button className={styles.logoutButton} onClick={handleLogout}>

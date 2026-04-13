@@ -190,3 +190,137 @@ func GetProductByID(pool *pgxpool.Pool, id string) (*models.Product, error) {
 
 	return &p, nil
 }
+
+func UpdateProduct(
+	pool *pgxpool.Pool,
+	id string,
+	product_name, description, category string,
+	product_cost, product_price float64,
+	quantity int64,
+	imageURLs []string,
+) (*models.Product, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Update main product
+	query := `
+		UPDATE products
+		SET product_name=$1,
+			description=$2,
+			category=$3,
+			product_cost=$4,
+			product_price=$5,
+			quantity=$6,
+			main_image=$7,
+			updated_at=NOW()
+		WHERE id=$8
+		RETURNING id, product_name, description, category, product_cost, product_price, quantity, main_image, created_at, updated_at
+	`
+
+	mainImage := ""
+	if len(imageURLs) > 0 {
+		mainImage = imageURLs[0]
+	}
+
+	var product models.Product
+
+	err = tx.QueryRow(ctx, query,
+		product_name,
+		description,
+		category,
+		product_cost,
+		product_price,
+		quantity,
+		mainImage,
+		id,
+	).Scan(
+		&product.ID,
+		&product.Name,
+		&product.Description,
+		&product.Category,
+		&product.Cost,
+		&product.Price,
+		&product.Quantity,
+		&product.MainImage,
+		&product.CreatedAt,
+		&product.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	//  Delete old images
+	_, err = tx.Exec(ctx, `DELETE FROM product_images WHERE product_id=$1`, id)
+	if err != nil {
+		return nil, err
+	}
+
+	//  Insert new images
+	for _, url := range imageURLs {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO product_images(product_id, image_url)
+			VALUES($1, $2)
+		`, id, url)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	product.Images = imageURLs
+
+	// 4️⃣ Commit
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &product, nil
+}
+
+func DeleteProduct(pool *pgxpool.Pool, id string) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1️⃣ Delete images first (FK safety)
+	_, err = tx.Exec(ctx, `
+		DELETE FROM product_images WHERE product_id=$1
+	`, id)
+	if err != nil {
+		return err
+	}
+
+	// 2️⃣ Delete product
+	cmdTag, err := tx.Exec(ctx, `
+		DELETE FROM products WHERE id=$1
+	`, id)
+	if err != nil {
+		return err
+	}
+
+	// 3️⃣ Check if anything was deleted
+	if cmdTag.RowsAffected() == 0 {
+		return fmt.Errorf("product not found")
+	}
+
+	// 4️⃣ Commit
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
