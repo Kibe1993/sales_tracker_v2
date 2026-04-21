@@ -32,6 +32,9 @@ type UpdateProductInput struct {
 	Quantity    int64    `json:"quantity" binding:"required"`
 	Images      []string `json:"images" binding:"required"`
 }
+type UpdateStockInput struct {
+	Change int64 `json:"change" binding:"required"`
+}
 
 // Handler to create a product
 func CreateProductHandler(pool *pgxpool.Pool) gin.HandlerFunc {
@@ -175,5 +178,45 @@ func DeleteProductHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		ctx.JSON(http.StatusOK, gin.H{
 			"message": "Product deleted successfully",
 		})
+	}
+}
+
+func UpdateStockHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		id := ctx.Param("id")
+
+		// ✅ ONLY bind once
+		var input UpdateStockInput
+		if err := ctx.ShouldBindJSON(&input); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Basic validation
+		if input.Change == 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Change value cannot be zero"})
+			return
+		}
+
+		product, err := repository.UpdateStock(pool, id, input.Change)
+
+		if err != nil {
+
+			if strings.Contains(err.Error(), "insufficient stock") {
+				ctx.JSON(http.StatusBadRequest, gin.H{"error": "Not enough stock"})
+				return
+			}
+
+			if strings.Contains(err.Error(), "not found") {
+				ctx.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+				return
+			}
+
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, product)
 	}
 }

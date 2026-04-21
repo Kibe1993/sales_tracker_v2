@@ -26,16 +26,16 @@ export default function ProductDetailsPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const addToCart = useCartStore((state) => state.addToCart);
   const loadDraftSale = useCartStore((state) => state.loadDraftSale);
+  const getItemQty = useCartStore((state) => state.getItemQty);
 
   const { user, isLoaded } = useUser();
   const { getToken } = useAuth();
 
   const userId = user?.id;
-
-  // role
   const role = user?.publicMetadata?.role;
 
   // Load cart
@@ -54,10 +54,14 @@ export default function ProductDetailsPage() {
         const { data } = await axios.get(
           `http://localhost:5000/products/${id}`,
         );
+
         setProduct(data);
+
+        if (data.images?.length > 0) {
+          setSelectedImage(data.images[0]);
+        }
       } catch (err) {
         console.error("[Product] fetch failed:", err);
-        setProduct(null);
         toast.error("Failed to load product");
       } finally {
         setLoading(false);
@@ -67,12 +71,23 @@ export default function ProductDetailsPage() {
     if (id) fetchProduct();
   }, [id]);
 
+  // 🔥 STOCK CALCULATION (IMPORTANT FIX)
+  const cartQty = product ? getItemQty(product.id) : 0;
+  const remainingStock = product ? product.quantity - cartQty : 0;
+  const isOutOfStock = remainingStock <= 0;
+
   // Add to cart
   const handleAddToCart = async () => {
     if (!product) return;
 
     if (!userId) {
       toast.error("You must be logged in");
+      return;
+    }
+
+    // 🔥 HARD FRONTEND GUARD
+    if (isOutOfStock) {
+      toast.error("No more stock available");
       return;
     }
 
@@ -92,25 +107,35 @@ export default function ProductDetailsPage() {
       }, 700);
     } catch (err) {
       console.error("[Cart] add failed:", err);
-      toast.error("Failed to add item to cart");
+      toast.error("Failed to add item");
     } finally {
       setAdding(false);
     }
   };
+  const getAuthToken = async () => {
+    if (!isLoaded || !user) return null;
 
-  // Delete product (FIXED)
+    return await getToken({
+      template: "sales_tracker",
+      skipCache: true,
+    });
+  };
+  // Delete product
   const handleDelete = async () => {
     if (!product) return;
-
-    const confirmDelete = confirm(
-      "Are you sure you want to delete this product?",
-    );
-    if (!confirmDelete) return;
+    if (!confirm("Delete this product?")) return;
 
     try {
-      const token = await getToken();
+      setLoading(true);
 
-      await axios.delete(`http://localhost:5000/products/${product.id}`, {
+      const token = await getAuthToken();
+
+      if (!token) {
+        toast.error("Authentication failed");
+        return;
+      }
+
+      await axios.delete(`http://localhost:5000/admin/products/${product.id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -120,7 +145,9 @@ export default function ProductDetailsPage() {
       router.push("/dashboard/inventory");
     } catch (err) {
       console.error("[Delete] failed:", err);
-      toast.error("Failed to delete product");
+      toast.error("Delete failed");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -135,20 +162,39 @@ export default function ProductDetailsPage() {
         </Link>
 
         <div className={styles.container}>
+          {/* IMAGE SECTION */}
           <div className={styles.imageSection}>
             <img
-              src={product.images?.[0] || "/placeholder.png"}
+              src={selectedImage || "/placeholder.png"}
               alt={product.product_name}
               className={styles.mainImage}
             />
+
+            <div className={styles.thumbnailContainer}>
+              {product.images?.map((img, i) => (
+                <img
+                  key={i}
+                  src={img}
+                  alt={`Thumbnail ${i}`}
+                  className={`${styles.thumbnail} ${
+                    selectedImage === img ? styles.activeThumbnail : ""
+                  }`}
+                  onClick={() => setSelectedImage(img)}
+                />
+              ))}
+            </div>
           </div>
 
+          {/* DETAILS SECTION */}
           <div className={styles.detailsSection}>
             <h1 className={styles.title}>{product.product_name}</h1>
 
             <p className={styles.category}>Category: {product.category}</p>
+
             <p className={styles.description}>{product.description}</p>
-            <p className={styles.stock}>{product.quantity} items in stock</p>
+
+            {/* 🔥 SHOW REAL STOCK */}
+            <p className={styles.stock}>{remainingStock} items available</p>
 
             <h2 className={styles.price}>
               KES {product.product_price.toLocaleString()}
@@ -158,10 +204,10 @@ export default function ProductDetailsPage() {
             <div className={styles.actionsRow}>
               <button
                 className={styles.buyBtn}
-                disabled={product.quantity === 0 || adding}
+                disabled={isOutOfStock || adding}
                 onClick={handleAddToCart}
               >
-                {product.quantity === 0
+                {isOutOfStock
                   ? "Out of Stock"
                   : adding
                     ? "Adding..."

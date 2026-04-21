@@ -4,6 +4,7 @@
   color: #1e293b;
   padding: 40px 20px;
 }
+
 .wrapper {
   width: 80%;
   margin: auto;
@@ -17,7 +18,7 @@
   text-decoration: none;
   font-weight: 500;
   transition: 0.2s ease;
-  padding: 10px;
+  padding: 10px 14px;
   background: rgb(150, 192, 206);
   border-radius: 10px;
 }
@@ -34,7 +35,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 50px;
-  align-items: center;
+  align-items: start; /* 🔥 FIX: prevents vertical weirdness */
 }
 
 /* Image Section */
@@ -42,16 +43,49 @@
   background: rgb(160, 202, 216);
   padding: 20px;
   border-radius: 16px;
+
   display: flex;
-  justify-content: center;
+  flex-direction: column; /* 🔥 IMPORTANT */
   align-items: center;
+  gap: 15px;
 }
 
+/* Main Image */
 .mainImage {
   width: 100%;
-  max-height: 450px;
-  object-fit: contain;
+  max-width: 420px;
+  height: 420px;
+  object-fit: cover; /* 🔥 FIX: looks cleaner than contain */
   border-radius: 12px;
+}
+
+/* 🔥 NEW: Thumbnail Row */
+.thumbnailContainer {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Thumbnail */
+.thumbnail {
+  width: 65px;
+  height: 65px;
+  object-fit: cover;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  transition: 0.2s ease;
+}
+
+.thumbnail:hover {
+  transform: scale(1.05);
+  border-color: #94a3b8;
+}
+
+/* Active thumbnail */
+.activeThumbnail {
+  border-color: #1e293b;
 }
 
 /* Details Section */
@@ -93,22 +127,72 @@
   color: #1e293b;
 }
 
-/* Button */
-.buyBtn {
-  padding: 14px;
-  background: rgb(150, 192, 206);
-  border: none;
+.unit {
+  font-size: 0.95rem;
+  color: #ffffff;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+/* Actions */
+.actionsRow {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+/* Buttons */
+.buyBtn,
+.editBtn,
+.deleteBtn {
+  height: 48px;
+  padding: 0 16px;
   border-radius: 12px;
-  color: white;
   font-weight: 600;
   font-size: 1rem;
   cursor: pointer;
   transition: 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: none;
+}
+
+/* Buy */
+.buyBtn {
+  background: rgb(150, 192, 206);
+  color: white;
 }
 
 .buyBtn:hover {
   transform: translateY(-3px);
   box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4);
+}
+
+/* Edit */
+.editBtn {
+  color: #dff;
+  min-width: 120px;
+  border: 2px white solid;
+  background: transparent;
+}
+
+.editBtn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4);
+}
+
+/* Delete */
+.deleteBtn {
+  background: #e9cdcd;
+}
+
+.deleteBtn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(248, 113, 113, 0.4);
+  background: #f09b9b;
 }
 
 /* Responsive */
@@ -123,56 +207,6 @@
   }
 
   .mainImage {
-    max-height: 350px;
+    height: 300px;
   }
-}
-
-.unit {
-  font-size: 0.95rem;
-  color: #ffffff;
-  margin-left: 6px;
-  font-weight: 500;
-}
-
-.actionsRow {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  margin-top: 10px;
-}
-.buyBtn,
-.editBtn,
-.deleteBtn {
-  height: 48px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 12px;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: 0.3s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  line-height: 1;
-}
-.editBtn {
-  color: #dff;
-  min-width: 120px;
-  border: 2px white solid;
-}
-.editBtn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.4);
-}
-
-.deleteBtn {
-  background: #e9cdcd; /* softer red */
-}
-
-.deleteBtn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(248, 113, 113, 0.4);
-  background: #f09b9b;
 }

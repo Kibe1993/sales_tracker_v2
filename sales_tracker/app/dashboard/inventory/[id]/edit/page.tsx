@@ -118,14 +118,28 @@ export default function EditProductPage() {
     return res.data.secure_url;
   }
 
-  // ---------------- UPDATE ----------------
+  // ---------------- UPDATE PRODUCT ----------------
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
 
     try {
       setSaving(true);
 
-      const token = await getToken();
+      if (!isLoaded || !user) {
+        toast.error("User not ready");
+        return;
+      }
+
+      // 🔥 CONSISTENT CLERK TEMPLATE TOKEN
+      const token = await getToken({
+        template: "sales_tracker",
+        skipCache: true,
+      });
+
+      if (!token) {
+        toast.error("Authentication failed");
+        return;
+      }
 
       // upload ONLY new images
       const uploadedUrls = await Promise.all(newImages.map(uploadToCloudinary));
@@ -133,7 +147,7 @@ export default function EditProductPage() {
       const finalImages = [...form.images, ...uploadedUrls];
 
       await axios.patch(
-        `http://localhost:5000/products/${id}`,
+        `http://localhost:5000/admin/products/${id}`,
         {
           product_name: form.product_name,
           description: form.description,
@@ -167,7 +181,6 @@ export default function EditProductPage() {
       <div className={styles.wrapper}>
         <h2 className={styles.title}>Edit Product</h2>
 
-        {/* TOP ACTIONS */}
         <div className={styles.topActions}>
           <button
             type="button"

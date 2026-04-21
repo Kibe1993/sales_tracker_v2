@@ -167,3 +167,40 @@
   background: #2563eb;
   transform: translateY(-2px);
 }
+/* 🔥 Stock Controls */
+.stockControls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.stockBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: none;
+  background: #3b82f6;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stockBtn:hover {
+  background: #2563eb;
+}
+
+.stockBtn:disabled {
+  background: #cbd5f5;
+  cursor: not-allowed;
+}
+
+.stockValue {
+  min-width: 30px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+}

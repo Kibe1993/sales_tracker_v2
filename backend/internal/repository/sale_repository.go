@@ -3,6 +3,7 @@ package repository
 import (
 	"backend/internal/models"
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,8 +28,7 @@ func AddItemToDraftSale(
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. GET OR CREATE USER (FIXED)
-
+	// 1. GET OR CREATE USER
 	var userID string
 
 	err = tx.QueryRow(ctx, `
@@ -48,20 +48,17 @@ func AddItemToDraftSale(
 		if err != nil {
 			return nil, err
 		}
-
 	} else if err != nil {
 		return nil, err
 	}
 
-	// 2. GET OR CREATE DRAFT SALE
-
+	// 2. GET OR CREATE DRAFT SALE (ONE PER USER)
 	var saleID string
 
 	err = tx.QueryRow(ctx, `
 		SELECT id
 		FROM sales
 		WHERE user_id = $1 AND status = 'draft'
-		ORDER BY created_at DESC
 		LIMIT 1
 	`, userID).Scan(&saleID)
 
@@ -75,83 +72,84 @@ func AddItemToDraftSale(
 		if err != nil {
 			return nil, err
 		}
-
 	} else if err != nil {
 		return nil, err
 	}
 
-	// 3. CHECK IF ITEM EXISTS
-
-	var existingID string
-	var existingQty int
+	// 3. LOCK PRODUCT + GET STOCK
+	var productCost float64
+	var stock int64
 
 	err = tx.QueryRow(ctx, `
-		SELECT id, quantity
-		FROM sales_items
-		WHERE sale_id = $1 AND product_id = $2
-	`, saleID, productID).Scan(&existingID, &existingQty)
+		SELECT product_cost, quantity
+		FROM products
+		WHERE id = $1
+		FOR UPDATE
+	`, productID).Scan(&productCost, &stock)
 
-	var item models.SaleItem
-
-	if err == nil {
-
-		// UPDATE
-		newQty := existingQty + quantity
-		subtotal := float64(newQty) * unitPrice
-
-		_, err = tx.Exec(ctx, `
-			UPDATE sales_items
-			SET quantity = $1, subtotal = $2
-			WHERE id = $3
-		`, newQty, subtotal, existingID)
-
-		if err != nil {
-			return nil, err
-		}
-
-		item = models.SaleItem{
-			ID:        existingID,
-			SaleID:    saleID,
-			ProductID: productID,
-			Quantity:  newQty,
-			UnitPrice: unitPrice,
-			Subtotal:  subtotal,
-			CreatedAt: time.Now(),
-		}
-
-	} else if err == pgx.ErrNoRows {
-
-		// INSERT
-		itemID := uuid.New().String()
-		subtotal := float64(quantity) * unitPrice
-
-		_, err = tx.Exec(ctx, `
-			INSERT INTO sales_items (
-				id, sale_id, product_id, quantity, unit_price, subtotal
-			)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, itemID, saleID, productID, quantity, unitPrice, subtotal)
-
-		if err != nil {
-			return nil, err
-		}
-
-		item = models.SaleItem{
-			ID:        itemID,
-			SaleID:    saleID,
-			ProductID: productID,
-			Quantity:  quantity,
-			UnitPrice: unitPrice,
-			Subtotal:  subtotal,
-			CreatedAt: time.Now(),
-		}
-
-	} else {
+	if err != nil {
 		return nil, err
 	}
 
-	// 4. UPDATE TOTAL
+	// 4. GET CURRENT QTY IN CART
+	var existingQty int
 
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(quantity, 0)
+		FROM sales_items
+		WHERE sale_id = $1 AND product_id = $2
+	`, saleID, productID).Scan(&existingQty)
+
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	// 5. STOCK VALIDATION (IMPORTANT PART)
+	if existingQty+quantity > int(stock) {
+		return nil, errors.New("insufficient stock available")
+	}
+
+	// 6. UPSERT ITEM
+	subtotal := float64(existingQty+quantity) * unitPrice
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO sales_items (
+			id, sale_id, product_id, quantity, unit_price, subtotal, cost_price
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (sale_id, product_id)
+		DO UPDATE SET
+			quantity = sales_items.quantity + EXCLUDED.quantity,
+			subtotal = (sales_items.quantity + EXCLUDED.quantity) * EXCLUDED.unit_price
+	`, uuid.New().String(), saleID, productID, quantity, unitPrice, subtotal, productCost)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 7. RETURN ITEM
+	var item models.SaleItem
+
+	err = tx.QueryRow(ctx, `
+		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, cost_price, created_at
+		FROM sales_items
+		WHERE sale_id = $1 AND product_id = $2
+	`, saleID, productID).Scan(
+		&item.ID,
+		&item.SaleID,
+		&item.ProductID,
+		&item.Quantity,
+		&item.UnitPrice,
+		&item.Subtotal,
+		&item.CostPrice,
+		&item.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 8. UPDATE TOTAL
 	_, err = tx.Exec(ctx, `
 		UPDATE sales
 		SET total_amount = (
@@ -165,8 +163,6 @@ func AddItemToDraftSale(
 	if err != nil {
 		return nil, err
 	}
-
-	// 5. COMMIT
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -182,8 +178,7 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 	var sale models.Sale
 	var internalUserID string
 
-	// 1. GET USER (SAFE)
-
+	// 1. GET USER
 	err := pool.QueryRow(ctx, `
 		SELECT id
 		FROM users
@@ -191,14 +186,15 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 	`, clerkUserID).Scan(&internalUserID)
 
 	if err == pgx.ErrNoRows {
-		// user exists in Clerk but not in DB yet → treat as empty cart
 		return &models.Sale{
 			Items: []models.SaleItem{},
 		}, nil
 	}
+	if err != nil {
+		return nil, err
+	}
 
 	// 2. GET DRAFT SALE
-
 	err = pool.QueryRow(ctx, `
 		SELECT id, user_id, total_amount, created_at
 		FROM sales
@@ -213,14 +209,15 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 	)
 
 	if err == pgx.ErrNoRows {
-		return nil, nil
+		return &models.Sale{
+			Items: []models.SaleItem{},
+		}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. LOAD ITEMS
-
+	// 3. LOAD ITEMS + STOCK INFO
 	rows, err := pool.Query(ctx, `
 		SELECT 
 			si.id,
@@ -230,8 +227,11 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 			si.unit_price,
 			si.subtotal,
 			si.created_at,
+
 			COALESCE(p.product_name, ''),
-			COALESCE(p.main_image, '')
+			COALESCE(p.main_image, ''),
+			COALESCE(p.quantity, 0) AS product_stock
+
 		FROM sales_items si
 		LEFT JOIN products p ON p.id = si.product_id
 		WHERE si.sale_id = $1
@@ -257,6 +257,7 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 			&si.CreatedAt,
 			&si.ProductName,
 			&si.ProductImage,
+			&si.ProductStock,
 		); err != nil {
 			return nil, err
 		}
@@ -267,7 +268,6 @@ func GetDraftSale(pool *pgxpool.Pool, clerkUserID string) (*models.Sale, error) 
 	sale.Items = items
 	return &sale, nil
 }
-
 func UpdateCartItemQuantity(
 	pool *pgxpool.Pool,
 	itemID string,
@@ -283,21 +283,42 @@ func UpdateCartItemQuantity(
 	}
 	defer tx.Rollback(ctx)
 
-	var unitPrice float64
-	var saleID string
+	var (
+		unitPrice float64
+		saleID    string
+		costPrice float64
+		productID string
+	)
 
-	// 1. GET CURRENT ITEM
+	// 1. Get cart item
 	err = tx.QueryRow(ctx, `
-		SELECT unit_price, sale_id
+		SELECT unit_price, sale_id, cost_price, product_id
 		FROM sales_items
 		WHERE id = $1
-	`, itemID).Scan(&unitPrice, &saleID)
+	`, itemID).Scan(&unitPrice, &saleID, &costPrice, &productID)
 
 	if err != nil {
 		return nil, err
 	}
 
-	// ❗ If quantity becomes 0 → delete instead
+	// 2. Get product stock
+	var stock int
+	err = tx.QueryRow(ctx, `
+		SELECT quantity
+		FROM products
+		WHERE id = $1
+	`, productID).Scan(&stock)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. HARD RULE (stock guard)
+	if quantity > stock {
+		return nil, errors.New("insufficient stock available")
+	}
+
+	// 4. Update / delete
 	if quantity <= 0 {
 		_, err = tx.Exec(ctx, `
 			DELETE FROM sales_items
@@ -307,13 +328,13 @@ func UpdateCartItemQuantity(
 		if err != nil {
 			return nil, err
 		}
-
 	} else {
 		subtotal := float64(quantity) * unitPrice
 
 		_, err = tx.Exec(ctx, `
 			UPDATE sales_items
-			SET quantity = $1, subtotal = $2
+			SET quantity = $1,
+			    subtotal = $2
 			WHERE id = $3
 		`, quantity, subtotal, itemID)
 
@@ -322,7 +343,7 @@ func UpdateCartItemQuantity(
 		}
 	}
 
-	// 2. UPDATE TOTAL
+	// 5. Update sale total
 	_, err = tx.Exec(ctx, `
 		UPDATE sales
 		SET total_amount = (
@@ -337,11 +358,11 @@ func UpdateCartItemQuantity(
 		return nil, err
 	}
 
-	// 3. RETURN UPDATED ITEM (if still exists)
+	// 6. Return updated item
 	var item models.SaleItem
 
 	err = tx.QueryRow(ctx, `
-		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, created_at
+		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, cost_price, created_at
 		FROM sales_items
 		WHERE id = $1
 	`, itemID).Scan(
@@ -351,10 +372,10 @@ func UpdateCartItemQuantity(
 		&item.Quantity,
 		&item.UnitPrice,
 		&item.Subtotal,
+		&item.CostPrice,
 		&item.CreatedAt,
 	)
 
-	// If deleted, just commit and return nil
 	if err == pgx.ErrNoRows {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -372,7 +393,6 @@ func UpdateCartItemQuantity(
 
 	return &item, nil
 }
-
 func RemoveCartItem(
 	pool *pgxpool.Pool,
 	itemID string,
@@ -426,4 +446,202 @@ func RemoveCartItem(
 	}
 
 	return tx.Commit(ctx)
+}
+
+func Checkout(pool *pgxpool.Pool, clerkUserId string) (*models.Sale, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. GET USER ID
+	var userID string
+
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM users
+		WHERE clerk_user_id = $1
+	`, clerkUserId).Scan(&userID)
+
+	if err == pgx.ErrNoRows {
+		return nil, errors.New("user not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. GET DRAFT SALE
+	var sale models.Sale
+
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, total_amount, created_at
+		FROM sales
+		WHERE user_id = $1 AND status = 'draft'
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, userID).Scan(
+		&sale.ID,
+		&sale.UserID,
+		&sale.TotalAmount,
+		&sale.CreatedAt,
+	)
+
+	if err == pgx.ErrNoRows {
+		return nil, errors.New("no active cart found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. GET ITEMS (WITH PRODUCT DATA FOR STOCK + COST)
+	rows, err := tx.Query(ctx, `
+		SELECT 
+			si.id,
+			si.product_id,
+			si.quantity,
+			si.unit_price,
+			p.product_cost,
+			p.quantity
+		FROM sales_items si
+		JOIN products p ON p.id = si.product_id
+		WHERE si.sale_id = $1
+	`, sale.ID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type checkoutItem struct {
+		itemID      string
+		productID   string
+		qty         int
+		unitPrice   float64
+		costPrice   float64
+		stockBefore int
+	}
+
+	var items []checkoutItem
+
+	for rows.Next() {
+		var it checkoutItem
+
+		if err := rows.Scan(
+			&it.itemID,
+			&it.productID,
+			&it.qty,
+			&it.unitPrice,
+			&it.costPrice,
+			&it.stockBefore,
+		); err != nil {
+			return nil, err
+		}
+
+		// ❗ STOCK VALIDATION
+		if it.stockBefore < it.qty {
+			return nil, errors.New("insufficient stock for product")
+		}
+
+		items = append(items, it)
+	}
+
+	// 4. DEDUCT STOCK + UPDATE SALES ITEMS COST SNAPSHOT
+	for _, it := range items {
+
+		// reduce stock
+		_, err = tx.Exec(ctx, `
+			UPDATE products
+			SET quantity = quantity - $1
+			WHERE id = $2
+		`, it.qty, it.productID)
+
+		if err != nil {
+			return nil, err
+		}
+
+		// store cost snapshot (IMPORTANT FOR PROFIT)
+		_, err = tx.Exec(ctx, `
+			UPDATE sales_items
+			SET cost_price = $1
+			WHERE id = $2
+		`, it.costPrice, it.itemID)
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 5. FINALIZE SALE
+	_, err = tx.Exec(ctx, `
+		UPDATE sales
+		SET status = 'completed',
+		    total_amount = (
+				SELECT COALESCE(SUM(subtotal), 0)
+				FROM sales_items
+				WHERE sale_id = $1
+		    )
+		WHERE id = $1
+	`, sale.ID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 6. RETURN FINAL SALE
+	err = tx.QueryRow(ctx, `
+		SELECT id, user_id, total_amount, status, created_at
+		FROM sales
+		WHERE id = $1
+	`, sale.ID).Scan(
+		&sale.ID,
+		&sale.UserID,
+		&sale.TotalAmount,
+		&sale.Status,
+		&sale.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// 7. LOAD ITEMS (OPTIONAL FOR RECEIPT)
+	itemRows, err := tx.Query(ctx, `
+		SELECT id, sale_id, product_id, quantity, unit_price, subtotal, cost_price
+		FROM sales_items
+		WHERE sale_id = $1
+	`, sale.ID)
+
+	if err != nil {
+		return nil, err
+	}
+	defer itemRows.Close()
+
+	for itemRows.Next() {
+		var si models.SaleItem
+		if err := itemRows.Scan(
+			&si.ID,
+			&si.SaleID,
+			&si.ProductID,
+			&si.Quantity,
+			&si.UnitPrice,
+			&si.Subtotal,
+			&si.CostPrice,
+		); err != nil {
+			return nil, err
+		}
+
+		sale.Items = append(sale.Items, si)
+	}
+
+	// 8. COMMIT
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return &sale, nil
 }

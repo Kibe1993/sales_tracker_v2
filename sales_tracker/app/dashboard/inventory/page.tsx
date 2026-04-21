@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import axios from "axios";
 import styles from "./page.module.css";
+import { useUser, useAuth } from "@clerk/nextjs";
 
 type Product = {
   id: string;
@@ -21,6 +22,14 @@ export default function ProductPage() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+
+  // 🔐 ROLE CHECK
+  const role = user?.publicMetadata?.role;
+  const isAdmin = role === "admin";
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -39,6 +48,50 @@ export default function ProductPage() {
     fetchProducts();
   }, []);
 
+  const handleStockChange = async (id: string, change: number) => {
+    try {
+      // 🔥 Ensure Clerk is ready
+      if (!isLoaded || !user) {
+        return;
+      }
+
+      setUpdatingId(id);
+
+      // 🔥 FORCE template + bypass cache
+      const token = await getToken({
+        template: "sales_tracker",
+        skipCache: true,
+      });
+
+      if (!token) {
+        console.error("[STOCK FRONTEND] ❌ No auth token");
+        return;
+      }
+
+      //  DECODE TOKEN (THIS IS CRITICAL)
+      const payload = JSON.parse(atob(token.split(".")[1]));
+
+      const url = `http://localhost:5000/admin/products/${id}/stock`;
+
+      const { data } = await axios.patch(
+        url,
+        { change },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      setProducts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, quantity: data.quantity } : p)),
+      );
+    } catch (err) {
+      console.error("[STOCK FRONTEND] ❌ Stock update failed:", err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
   const filtered =
     activeFilter === "All"
       ? products
@@ -50,7 +103,6 @@ export default function ProductPage() {
 
   return (
     <div className={styles.page}>
-      {/* Dashboard link OUTSIDE container */}
       <div className={styles.topBar}>
         <Link href="/dashboard" className={styles.dashboardLink}>
           ← Dashboard
@@ -76,13 +128,9 @@ export default function ProductPage() {
           ))}
         </div>
 
-        {/* Loading */}
         {loading && <p className={styles.status}>Loading products...</p>}
-
-        {/* Error */}
         {error && <p className={styles.error}>{error}</p>}
 
-        {/* Grid */}
         {!loading && !error && (
           <>
             <div className={styles.grid}>
@@ -109,6 +157,33 @@ export default function ProductPage() {
                       </span>
                     </div>
 
+                    {/*  ONLY ADMIN SEES THIS */}
+                    {isLoaded && isAdmin && (
+                      <div className={styles.stockControls}>
+                        <button
+                          className={styles.stockBtn}
+                          disabled={
+                            product.quantity <= 0 || updatingId === product.id
+                          }
+                          onClick={() => handleStockChange(product.id, -1)}
+                        >
+                          -
+                        </button>
+
+                        <span className={styles.stockValue}>
+                          {product.quantity}
+                        </span>
+
+                        <button
+                          className={styles.stockBtn}
+                          disabled={updatingId === product.id}
+                          onClick={() => handleStockChange(product.id, +1)}
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
+
                     <Link
                       href={`/dashboard/inventory/${product.id}`}
                       className={styles.seeMoreBtn}
@@ -120,7 +195,6 @@ export default function ProductPage() {
               ))}
             </div>
 
-            {/* Load More */}
             {visibleCount < filtered.length && (
               <div className={styles.loadWrapper}>
                 <button

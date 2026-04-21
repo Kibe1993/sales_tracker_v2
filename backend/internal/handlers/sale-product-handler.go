@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"backend/internal/repository"
+	"log"
 	"net/http"
 	"strings"
 
@@ -29,13 +30,13 @@ func AddItemToCartHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 			UnitPrice   float64 `json:"unitPrice"`
 		}
 
-		// Bind JSON
+		// 1. Bind JSON
 		if err := ctx.ShouldBindJSON(&input); err != nil {
+
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Validation
+		// 2. Validation
 		if input.ClerkUserID == "" {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "clerkUserId required"})
 			return
@@ -47,16 +48,18 @@ func AddItemToCartHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		if input.Quantity <= 0 {
+
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "quantity must be > 0"})
 			return
 		}
 
 		if input.UnitPrice <= 0 {
+
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "unitPrice must be > 0"})
 			return
 		}
 
-		// Repository call
+		// 3. Repository call
 		item, err := repository.AddItemToDraftSale(
 			pool,
 			input.ClerkUserID,
@@ -66,6 +69,7 @@ func AddItemToCartHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		)
 
 		if err != nil {
+
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -157,5 +161,48 @@ func DeleteCartItemHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		ctx.Status(http.StatusNoContent)
+	}
+}
+
+func CheckoutHandler(pool *pgxpool.Pool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+
+		clerkUserId := ctx.GetHeader("X-Clerk-User-Id")
+
+		if strings.TrimSpace(clerkUserId) == "" {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": "user id is required",
+			})
+			return
+		}
+
+		log.Println("CHECKOUT START for user:", clerkUserId)
+
+		// 3. Call repository
+		sale, err := repository.Checkout(pool, clerkUserId)
+		if err != nil {
+
+			// LOG REAL ERROR (this helps you debug 90% of issues)
+			log.Println("CHECKOUT ERROR:", err)
+
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		// 4. Safety check (should never happen, but good POS guard)
+		if sale == nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": "checkout failed: no sale returned",
+			})
+			return
+		}
+
+		// 5. SUCCESS LOG
+		log.Println("CHECKOUT SUCCESS:", sale.ID)
+
+		// 6. Return response (final receipt-ready sale object)
+		ctx.JSON(http.StatusOK, sale)
 	}
 }

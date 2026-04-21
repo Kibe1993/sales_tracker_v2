@@ -8,8 +8,10 @@ type SaleItem struct {
 	ProductID    string    `json:"product_id" db:"product_id"`
 	Quantity     int       `json:"quantity" db:"quantity"`
 	UnitPrice    float64   `json:"unit_price" db:"unit_price"`
+	CostPrice    float64   `json:"cost_price" db:"cost_price"`
 	Subtotal     float64   `json:"subtotal" db:"subtotal"`
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	ProductName  string    `json:"product_name"`
 	ProductImage string    `json:"product_image"`
+	ProductStock int64     `json:"product_stock"`
 }

@@ -324,3 +324,41 @@ func DeleteProduct(pool *pgxpool.Pool, id string) error {
 
 	return nil
 }
+
+func UpdateStock(pool *pgxpool.Pool, productID string, change int64) (*models.Product, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `
+		UPDATE products
+		SET quantity = quantity + $1,
+			updated_at = NOW()
+		WHERE id = $2
+		AND quantity + $1 >= 0
+		RETURNING id, product_name, description, category, product_cost, product_price, quantity, main_image, created_at, updated_at
+	`
+
+	var p models.Product
+
+	err := pool.QueryRow(ctx, query, change, productID).Scan(
+		&p.ID,
+		&p.Name,
+		&p.Description,
+		&p.Category,
+		&p.Cost,
+		&p.Price,
+		&p.Quantity,
+		&p.MainImage,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("product not found or insufficient stock")
+		}
+		return nil, err
+	}
+
+	return &p, nil
+}

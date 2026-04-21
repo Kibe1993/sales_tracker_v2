@@ -9,25 +9,24 @@ import (
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
-		claims, exists := c.Get("claims")
+		roleVal, exists := c.Get("role")
 		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+
+			c.JSON(http.StatusForbidden, gin.H{"error": "role missing"})
 			c.Abort()
 			return
 		}
 
-		// Clerk stores metadata in claims
-		cl := claims.(map[string]interface{})
-
-		metadata, ok := cl["public_metadata"].(map[string]interface{})
+		role, ok := roleVal.(string)
 		if !ok {
-			c.JSON(http.StatusForbidden, gin.H{"error": "no role found"})
+
+			c.JSON(http.StatusForbidden, gin.H{"error": "invalid role"})
 			c.Abort()
 			return
 		}
 
-		role, ok := metadata["role"].(string)
-		if !ok || role != "admin" {
+		if role != "admin" {
+
 			c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
 			c.Abort()
 			return

@@ -20,7 +20,6 @@ export default function CartPage() {
 
   const [loading, setLoading] = useState(true);
 
-  // ✅ Load cart ONLY when Clerk is ready
   useEffect(() => {
     if (!isLoaded) return;
     if (!user?.id) {
@@ -32,13 +31,22 @@ export default function CartPage() {
     loadDraftSale(user.id).finally(() => setLoading(false));
   }, [isLoaded, user?.id]);
 
-  const handleIncrement = async (itemId: string, currentQty: number) => {
-    await updateQuantity(itemId, currentQty + 1);
+  const handleIncrement = async (
+    itemId: string,
+    qty: number,
+    stock?: number,
+  ) => {
+    if (stock !== undefined && qty >= stock) {
+      toast.warning("No more stock available");
+      return;
+    }
+
+    await updateQuantity(itemId, qty + 1);
   };
 
-  const handleDecrement = async (itemId: string, currentQty: number) => {
-    if (currentQty <= 1) return; // prevent negative
-    await updateQuantity(itemId, currentQty - 1);
+  const handleDecrement = async (itemId: string, qty: number) => {
+    if (qty <= 1) return;
+    await updateQuantity(itemId, qty - 1);
   };
 
   const handleRemove = async (itemId: string) => {
@@ -46,6 +54,10 @@ export default function CartPage() {
       await removeItem(itemId);
       toast.info("Item removed from cart");
     }
+  };
+
+  const handleCheckout = () => {
+    router.push("/dashboard/cartpage/checkout");
   };
 
   const total = items.reduce((sum, item) => sum + (item.subtotal ?? 0), 0);
@@ -73,71 +85,82 @@ export default function CartPage() {
       <h1 className={styles.title}>Your Cart</h1>
 
       <div className={styles.container}>
-        {/* Items List */}
         <div className={styles.items}>
-          {items.map((item) => (
-            <div key={item.id} className={styles.item}>
-              <div className={styles.imageSection}>
+          {items.map((item) => {
+            const maxReached =
+              item.productStock !== undefined &&
+              item.quantity >= item.productStock;
+
+            return (
+              <div key={item.id} className={styles.item}>
                 <img
                   src={item.product_image || "https://via.placeholder.com/150"}
-                  alt={item.product_name || "Product"}
                   className={styles.image}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src =
-                      "https://via.placeholder.com/150";
-                  }}
                 />
-              </div>
 
-              <div className={styles.itemInfo}>
-                <p className={styles.product}>
-                  {item.product_name || "Unknown Product"}
-                </p>
+                <div className={styles.itemInfo}>
+                  <p className={styles.product}>{item.product_name}</p>
 
-                <div className={styles.quantityControls}>
-                  <button
-                    onClick={() => handleDecrement(item.id, item.quantity)}
-                  >
-                    <Minus size={16} />
-                  </button>
-                  <span>{item.quantity}</span>
-                  <button
-                    onClick={() => handleIncrement(item.id, item.quantity)}
-                  >
-                    <Plus size={16} />
-                  </button>
+                  <div className={styles.quantityControls}>
+                    <button
+                      onClick={() => handleDecrement(item.id, item.quantity)}
+                    >
+                      <Minus size={16} />
+                    </button>
+
+                    <span>{item.quantity}</span>
+
+                    <button
+                      onClick={() =>
+                        handleIncrement(
+                          item.id,
+                          item.quantity,
+                          item.productStock,
+                        )
+                      }
+                      disabled={maxReached}
+                      style={{
+                        opacity: maxReached ? 0.4 : 1,
+                        cursor: maxReached ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+
+                  {maxReached && (
+                    <p style={{ fontSize: "12px", color: "orange" }}>
+                      Max stock reached ({item.productStock})
+                    </p>
+                  )}
+
+                  <p className={styles.unitPrice}>
+                    KES {(item.unitPrice ?? 0).toLocaleString()}
+                  </p>
                 </div>
 
-                <p className={styles.unitPrice}>
-                  KES {(item.unitPrice ?? 0).toLocaleString()} / Unit
-                </p>
-              </div>
+                <div className={styles.pricing}>
+                  <p className={styles.subtotal}>
+                    KES {(item.subtotal ?? 0).toLocaleString()}
+                  </p>
 
-              <div className={styles.pricing}>
-                <p className={styles.subtotal}>
-                  KES {(item.subtotal ?? 0).toLocaleString()}
-                </p>
-                <button
-                  onClick={() => handleRemove(item.id)}
-                  className={styles.removeBtn}
-                  title="Remove item"
-                >
-                  <Trash2 size={16} />
-                </button>
+                  <button
+                    onClick={() => handleRemove(item.id)}
+                    className={styles.removeBtn}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Summary */}
         <div className={styles.summary}>
           <h2>Total</h2>
-          <p className={styles.total}>KES {total.toLocaleString()} </p>
+          <p className={styles.total}>KES {total.toLocaleString()}</p>
 
-          <button
-            className={styles.checkoutBtn}
-            onClick={() => toast.info("Checkout not implemented yet")}
-          >
+          <button className={styles.checkoutBtn} onClick={handleCheckout}>
             Checkout
           </button>
         </div>

@@ -5,31 +5,43 @@ import axios from "axios";
 
 export type CartItem = {
   id: string;
-  productId: string; // keep camelCase for logic
+  productId: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;
   createdAt?: string;
   product_name?: string;
   product_image?: string;
+
+  // 👇 NEW: stock awareness
+  productStock?: number;
 };
 
 type CartStore = {
   items: CartItem[];
+  cartBusy: boolean;
 
   loadDraftSale: (userId: string) => Promise<void>;
+
   addToCart: (args: {
     userId: string;
     productId: string;
     unitPrice: number;
+    productStock?: number;
   }) => Promise<void>;
+
   updateQuantity: (itemId: string, quantity: number) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
 
+  setCartBusy: (value: boolean) => void;
+
   getCount: () => number;
+  getItemQty: (productId: string) => number;
+
+  // 👇 NEW helper (important for UI disabling)
+  canAddMore: (productId: string, stock: number) => boolean;
 };
 
-// normalize backend → frontend
 const formatItem = (item: any): CartItem => ({
   id: item.id,
   productId: item.product_id,
@@ -39,19 +51,23 @@ const formatItem = (item: any): CartItem => ({
   createdAt: item.created_at,
   product_name: item.product_name,
   product_image: item.product_image,
+
+  // 👇 backend must send this now
+  productStock: item.product_stock,
 });
 
 export const useCartStore = create<CartStore>((set, get) => ({
   items: [],
+  cartBusy: false,
 
-  // ✅ LOAD CART
+  setCartBusy: (value) => set({ cartBusy: value }),
+
   loadDraftSale: async (userId) => {
     try {
       const { data } = await axios.get(`http://localhost:5000/cart/${userId}`);
-      const formattedItems = (data.items || []).map(formatItem);
 
+      const formattedItems = (data.items || []).map(formatItem);
       set({ items: formattedItems });
-      console.log("[Cart] loaded:", formattedItems.length);
     } catch (err: any) {
       if (err.response?.status === 404) {
         set({ items: [] });
@@ -61,11 +77,24 @@ export const useCartStore = create<CartStore>((set, get) => ({
     }
   },
 
-  // ✅ ADD ITEM
-  addToCart: async ({ userId, productId, unitPrice }) => {
+  // =========================
+  // ADD TO CART (SAFE)
+  // =========================
+  addToCart: async ({ userId, productId, unitPrice, productStock }) => {
     const { items } = get();
+    set({ cartBusy: true });
 
     try {
+      const existingQty = items
+        .filter((i) => i.productId === productId)
+        .reduce((sum, i) => sum + i.quantity, 0);
+
+      // 👇 FRONTEND GUARD (optional but good UX)
+      if (productStock !== undefined && existingQty >= productStock) {
+        console.warn("[Cart] Stock limit reached");
+        return;
+      }
+
       const { data } = await axios.post("http://localhost:5000/cart/items", {
         clerkUserId: userId,
         productId,
@@ -74,6 +103,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       });
 
       const formatted = formatItem(data);
+
       const exists = items.find((i) => i.productId === productId);
 
       if (exists) {
@@ -93,12 +123,18 @@ export const useCartStore = create<CartStore>((set, get) => ({
       }
     } catch (err) {
       console.error("[Cart] addToCart failed:", err);
+    } finally {
+      set({ cartBusy: false });
     }
   },
 
-  // ✅ UPDATE QUANTITY
+  // =========================
+  // UPDATE QUANTITY (BACKEND IS FINAL AUTHORITY)
+  // =========================
   updateQuantity: async (itemId, quantity) => {
     if (quantity < 0) return;
+
+    set({ cartBusy: true });
 
     try {
       const { data } = await axios.patch(
@@ -109,27 +145,54 @@ export const useCartStore = create<CartStore>((set, get) => ({
       set((state) => ({
         items: state.items.map((i) =>
           i.id === itemId
-            ? { ...i, quantity: data.quantity, subtotal: data.subtotal }
+            ? {
+                ...i,
+                quantity: data.quantity,
+                subtotal: data.subtotal,
+              }
             : i,
         ),
       }));
     } catch (err) {
       console.error("[Cart] updateQuantity failed:", err);
+    } finally {
+      set({ cartBusy: false });
     }
   },
 
-  // ✅ REMOVE ITEM
   removeItem: async (itemId) => {
+    set({ cartBusy: true });
+
     try {
       await axios.delete(`http://localhost:5000/cart/items/${itemId}`);
+
       set((state) => ({
         items: state.items.filter((i) => i.id !== itemId),
       }));
     } catch (err) {
       console.error("[Cart] removeItem failed:", err);
+    } finally {
+      set({ cartBusy: false });
     }
   },
 
-  // ✅ CART COUNT
+  // =========================
+  // HELPERS
+  // =========================
   getCount: () => get().items.reduce((sum, i) => sum + i.quantity, 0),
+
+  getItemQty: (productId: string) => {
+    return get()
+      .items.filter((i) => i.productId === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+  },
+
+  // 👇 NEW: used for disabling + button in UI
+  canAddMore: (productId: string, stock: number) => {
+    const qty = get()
+      .items.filter((i) => i.productId === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+    return qty < stock;
+  },
 }));
